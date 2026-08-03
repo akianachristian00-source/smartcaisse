@@ -4,8 +4,12 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>SmartCaisse - Gestion Professionnelle</title>
+  <!-- Tailwind CSS -->
   <script src="https://cdn.tailwindcss.com"></script>
+  <!-- FontAwesome (Icônes) -->
   <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+  <!-- Supabase JS Client -->
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 </head>
 <body class="bg-slate-950 text-slate-100 font-sans min-h-screen pb-20">
 
@@ -41,12 +45,12 @@
 
     <!-- Actions Rapides -->
     <div class="grid grid-cols-2 gap-3">
-      <button class="bg-blue-600 hover:bg-blue-500 text-white p-4 rounded-2xl shadow-lg shadow-blue-600/20 flex flex-col items-center justify-center space-y-2.5 border border-blue-400/20 transition-all active:scale-95">
+      <button id="btn-vente" class="bg-blue-600 hover:bg-blue-500 text-white p-4 rounded-2xl shadow-lg shadow-blue-600/20 flex flex-col items-center justify-center space-y-2.5 border border-blue-400/20 transition-all active:scale-95">
         <i class="fa-solid fa-cart-plus text-xl"></i>
         <span class="font-semibold text-sm">Nouvelle Vente</span>
       </button>
 
-      <button class="bg-slate-900 hover:bg-slate-800 text-slate-200 p-4 rounded-2xl shadow-md flex flex-col items-center justify-center space-y-2.5 border border-slate-800 transition-all active:scale-95">
+      <button id="btn-stock" class="bg-slate-900 hover:bg-slate-800 text-slate-200 p-4 rounded-2xl shadow-md flex flex-col items-center justify-center space-y-2.5 border border-slate-800 transition-all active:scale-95">
         <i class="fa-solid fa-box-archive text-xl text-blue-400"></i>
         <span class="font-semibold text-sm">Gestion Stock</span>
       </button>
@@ -89,5 +93,7 @@
     <i class="fa-brands fa-whatsapp text-2xl"></i>
   </a>
 
+  <!-- Script Logique Métier -->
+  <script src="app.js"></script>
 </body>
 </html>
