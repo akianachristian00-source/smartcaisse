@@ -42,7 +42,7 @@ async function demarrerSession() {
   demarrerCompteEssai();
 }
 
-async function obtenirOuCreerBoutique(nomBoutique) {
+async function obtenirOuCreerBoutique(nomBoutique, telephone, pays) {
   const { data: { user } } = await supabaseClient.auth.getUser();
   if (!user) return null;
 
@@ -56,7 +56,12 @@ async function obtenirOuCreerBoutique(nomBoutique) {
 
   const { data: nouvelle, error } = await supabaseClient
     .from('boutiques')
-    .insert({ user_id: user.id, nom: nomBoutique || 'Ma Boutique' })
+    .insert({
+      user_id: user.id,
+      nom: nomBoutique || 'Ma Boutique',
+      telephone: telephone || null,
+      pays: pays || 'CG',
+    })
     .select()
     .single();
 
@@ -75,6 +80,8 @@ async function gererAuthentification(e) {
   const email = document.getElementById('auth-email').value.trim();
   const password = document.getElementById('auth-password').value;
   const nomBoutique = document.getElementById('auth-boutique').value.trim();
+  const telephone = document.getElementById('auth-telephone')?.value.trim() || '';
+  const pays = document.getElementById('auth-pays')?.value || 'CG';
   const btn = document.getElementById('auth-btn-submit');
   const texteOriginal = btn.innerText;
 
@@ -91,7 +98,7 @@ async function gererAuthentification(e) {
         fermerAuthModal();
         return;
       }
-      await obtenirOuCreerBoutique(nomBoutique);
+      await obtenirOuCreerBoutique(nomBoutique, telephone, pays);
     } else {
       const { error } = await supabaseClient.auth.signInWithPassword({ email, password });
       if (error) throw error;

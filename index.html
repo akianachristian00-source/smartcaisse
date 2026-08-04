@@ -393,9 +393,38 @@
     </div>
 
     <form id="auth-form" onsubmit="gererAuthentification(event)" class="space-y-3">
-      <div id="nom-boutique-container" class="hidden space-y-1">
-        <label class="text-xs text-slate-400 font-medium">Nom de la boutique</label>
-        <input type="text" id="auth-boutique" placeholder="Ex: Boutique Espoir" class="w-full bg-inkdeep border border-border rounded-xl px-4 py-3 text-sm text-white focus:outline-none focus:border-gold">
+      <div id="nom-boutique-container" class="hidden space-y-3">
+        <div class="space-y-1">
+          <label class="text-xs text-slate-400 font-medium">Nom de la boutique</label>
+          <input type="text" id="auth-boutique" placeholder="Ex: Boutique Espoir" class="w-full bg-inkdeep border border-border rounded-xl px-4 py-3 text-sm text-white focus:outline-none focus:border-gold">
+        </div>
+        <div class="grid grid-cols-2 gap-2">
+          <div class="space-y-1">
+            <label class="text-xs text-slate-400 font-medium">Téléphone</label>
+            <input type="tel" id="auth-telephone" placeholder="06XXXXXXXX" class="w-full bg-inkdeep border border-border rounded-xl px-4 py-3 text-sm text-white focus:outline-none focus:border-gold">
+          </div>
+          <div class="space-y-1">
+            <label class="text-xs text-slate-400 font-medium">Pays</label>
+            <select id="auth-pays" class="w-full bg-inkdeep border border-border rounded-xl px-3 py-3 text-sm text-white focus:outline-none focus:border-gold">
+              <option value="CG" selected>Congo-Brazzaville</option>
+              <option value="SN">Sénégal</option>
+              <option value="CI">Côte d'Ivoire</option>
+              <option value="BF">Burkina Faso</option>
+              <option value="ML">Mali</option>
+              <option value="BJ">Bénin</option>
+              <option value="TG">Togo</option>
+              <option value="NE">Niger</option>
+              <option value="GN">Guinée</option>
+              <option value="CM">Cameroun</option>
+              <option value="GA">Gabon</option>
+              <option value="CF">Centrafrique</option>
+              <option value="TD">Tchad</option>
+              <option value="CD">RD Congo</option>
+              <option value="GM">Gambie</option>
+              <option value="GW">Guinée-Bissau</option>
+            </select>
+          </div>
+        </div>
       </div>
       <div class="space-y-1">
         <label class="text-xs text-slate-400 font-medium">Adresse Email</label>
