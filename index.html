@@ -446,11 +446,11 @@
       </div>
       <div class="flex items-center space-x-3">
         <span class="hidden sm:inline-block bg-gold/10 text-gold border border-gold/30 text-xs font-semibold px-3 py-1 rounded-full">
-          <i class="fa-regular fa-clock mr-1"></i>Essai : 71h 59m
+          <i class="fa-regular fa-clock mr-1"></i>Essai : <span id="essai-countdown">--</span>
         </span>
-        <div class="bg-slate-800 hover:bg-slate-700 text-slate-300 p-2 rounded-xl border border-slate-700 cursor-pointer text-xs flex items-center space-x-1.5 transition">
+        <div onclick="seDeconnecter()" class="bg-slate-800 hover:bg-slate-700 text-slate-300 p-2 rounded-xl border border-slate-700 cursor-pointer text-xs flex items-center space-x-1.5 transition">
           <i class="fa-solid fa-user-circle text-sm text-gold"></i>
-          <span class="hidden sm:inline font-medium">Mon Compte</span>
+          <span class="hidden sm:inline font-medium">Déconnexion</span>
         </div>
       </div>
     </div>
@@ -492,26 +492,26 @@
       <div class="grid grid-cols-2 lg:grid-cols-4 gap-3.5">
         <div class="bg-card p-4 rounded-2xl border border-border space-y-1.5 shadow-md">
           <p class="text-[11px] font-bold text-slate-400 uppercase tracking-wider">Ventes du jour</p>
-          <p class="font-mono-num text-2xl font-extrabold text-white">0 <span class="text-xs font-normal text-slate-400">FCFA</span></p>
+          <p class="font-mono-num text-2xl font-extrabold text-white"><span id="kpi-ventes-jour">0</span> <span class="text-xs font-normal text-slate-400">FCFA</span></p>
           <span class="text-[10px] text-emerald bg-emerald/10 px-2 py-0.5 rounded border border-emerald/20 inline-block font-medium">
             <i class="fa-solid fa-arrow-trend-up mr-1"></i>0% vs Hier
           </span>
         </div>
         <div class="bg-card p-4 rounded-2xl border border-border space-y-1.5 shadow-md">
           <p class="text-[11px] font-bold text-slate-400 uppercase tracking-wider">Dettes à recouvrir</p>
-          <p class="font-mono-num text-2xl font-extrabold text-terracotta">0 <span class="text-xs font-normal text-slate-400">FCFA</span></p>
+          <p class="font-mono-num text-2xl font-extrabold text-terracotta"><span id="kpi-dettes">0</span> <span class="text-xs font-normal text-slate-400">FCFA</span></p>
           <span class="text-[10px] text-terracotta bg-terracotta/10 px-2 py-0.5 rounded border border-terracotta/20 inline-block font-medium">
-            0 client en attente
+            <span id="kpi-dettes-clients">0</span> client(s) en attente
           </span>
         </div>
         <div class="bg-card p-4 rounded-2xl border border-border space-y-1.5 shadow-md">
           <p class="text-[11px] font-bold text-slate-400 uppercase tracking-wider">Articles en Stock</p>
-          <p class="font-mono-num text-2xl font-extrabold text-gold">0 <span class="text-xs font-normal text-slate-400">références</span></p>
+          <p class="font-mono-num text-2xl font-extrabold text-gold"><span id="kpi-stock-count">0</span> <span class="text-xs font-normal text-slate-400">références</span></p>
           <span class="text-[10px] text-slate-400 bg-slate-800 px-2 py-0.5 rounded border border-slate-700 inline-block">Stock sain</span>
         </div>
         <div class="bg-card p-4 rounded-2xl border border-border space-y-1.5 shadow-md">
           <p class="text-[11px] font-bold text-slate-400 uppercase tracking-wider">Bénéfice estimé</p>
-          <p class="font-mono-num text-2xl font-extrabold text-emerald">0 <span class="text-xs font-normal text-slate-400">FCFA</span></p>
+          <p class="font-mono-num text-2xl font-extrabold text-emerald"><span id="kpi-benefice">0</span> <span class="text-xs font-normal text-slate-400">FCFA</span></p>
           <span class="text-[10px] text-emerald bg-emerald/10 px-2 py-0.5 rounded border border-emerald/20 inline-block font-medium">Marge moyenne 25%</span>
         </div>
       </div>
@@ -632,8 +632,9 @@
 
       <div id="form-dette" class="hidden bg-card p-4 rounded-2xl border border-border space-y-3">
         <h3 class="text-xs font-bold text-slate-300 uppercase">Enregistrer une créance client</h3>
-        <div class="grid grid-cols-1 sm:grid-cols-2 gap-2">
+        <div class="grid grid-cols-1 sm:grid-cols-3 gap-2">
           <input type="text" id="d-client" placeholder="Nom complet du client" class="bg-inkdeep border border-border rounded-xl px-3 py-2 text-xs text-white">
+          <input type="tel" id="d-telephone" placeholder="Téléphone (ex: 06XXXXXXX)" class="bg-inkdeep border border-border rounded-xl px-3 py-2 text-xs text-white">
           <input type="number" id="d-montant" placeholder="Montant dû (FCFA)" class="bg-inkdeep border border-border rounded-xl px-3 py-2 text-xs text-white">
         </div>
         <button onclick="enregistrerDette()" class="w-full bg-terracotta hover:bg-terracotta-dim text-white text-xs font-semibold py-2.5 rounded-xl">Valider la créance</button>
