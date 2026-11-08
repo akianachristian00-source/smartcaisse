@@ -8,7 +8,66 @@ const SUPABASE_URL = 'https://qdygbythaqrxqtpukkjk.supabase.co';
 const SUPABASE_KEY = 'sb_publishable_I5YUHBY5zeaR4DRcOlfdkw_XMjMfjmD';
 const supabaseClient = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 
+const NUMERO_WHATSAPP = '242064035691';
+
+// Offres : les limites réelles sont aussi appliquées côté base de données
+// (voir supabase/migration_plans_et_essai.sql).
+const OFFRES = {
+  essai:     { nom: 'Essai gratuit', prix: 0,     dettesMax: 10,       devis: false, rapports: false, ia: false, relances: false },
+  essentiel: { nom: 'Essentiel',     prix: 3500,  dettesMax: 10,       devis: false, rapports: false, ia: false, relances: false },
+  pro:       { nom: 'Pro',           prix: 7500,  dettesMax: Infinity, devis: true,  rapports: true,  ia: false, relances: true  },
+  premium:   { nom: 'Premium',       prix: 12500, dettesMax: Infinity, devis: true,  rapports: true,  ia: true,  relances: true  },
+};
+
 let boutiqueActuelle = null;
+let modePaiement = 'Espèces';
+
+function offreActuelle() {
+  const b = boutiqueActuelle;
+  if (!b) return 'essai';
+  if (b.plan === 'actif') {
+    if (b.abonnement_fin && new Date(b.abonnement_fin).getTime() < Date.now()) return 'expire';
+    return OFFRES[b.offre] ? b.offre : 'essentiel';
+  }
+  if (b.plan === 'essai') {
+    return new Date(b.essai_fin).getTime() > Date.now() ? 'essai' : 'expire';
+  }
+  return 'expire';
+}
+
+function droits() {
+  const o = offreActuelle();
+  return OFFRES[o] || OFFRES.essai;
+}
+
+function lienWhatsApp(texte) {
+  return `https://wa.me/${NUMERO_WHATSAPP}?text=${encodeURIComponent(texte)}`;
+}
+
+// Message discret en haut de l'écran (remplace les alertes du navigateur)
+function notifier(message, type) {
+  let zone = document.getElementById('zone-notifs');
+  if (!zone) {
+    zone = document.createElement('div');
+    zone.id = 'zone-notifs';
+    zone.style.cssText = 'position:fixed;top:14px;left:50%;transform:translateX(-50%);z-index:100;display:flex;flex-direction:column;gap:8px;width:min(92vw,380px);pointer-events:none;';
+    document.body.appendChild(zone);
+  }
+  const erreur = type === 'erreur' || /erreur|invalide|limite|expir|incorrect|déjà|deja/i.test(message);
+  const el = document.createElement('div');
+  el.style.cssText = `pointer-events:auto;background:#141A29;border:1px solid ${erreur ? '#D2603A' : '#22A667'};color:#f8fafc;font-size:12px;line-height:1.45;padding:12px 14px;border-radius:14px;box-shadow:0 18px 40px -12px rgba(0,0,0,.7);opacity:0;transform:translateY(-8px);transition:all .25s;`;
+  el.textContent = message;
+  zone.appendChild(el);
+  requestAnimationFrame(() => { el.style.opacity = '1'; el.style.transform = 'none'; });
+  setTimeout(() => { el.style.opacity = '0'; setTimeout(() => el.remove(), 300); }, 4500);
+}
+
+// Numéro congolais : 9 chiffres commençant par 04, 05 ou 06. Retourne +242XXXXXXXXX ou null.
+function normaliserTelephoneCG(saisie) {
+  let chiffres = String(saisie || '').replace(/\D/g, '');
+  if (chiffres.startsWith('242') && chiffres.length === 12) chiffres = chiffres.slice(3);
+  return /^0[456]\d{7}$/.test(chiffres) ? '+242' + chiffres : null;
+}
 let intervalleEssai = null;
 let graphiqueVentes = null;
 
@@ -43,6 +102,74 @@ async function demarrerSession() {
   await verifierStatutAdmin();
   if (typeof afficherAppDirect === 'function') afficherAppDirect();
   demarrerCompteEssai();
+  appliquerOffre();
+}
+
+// Verrous visuels selon l'offre + écran d'abonnement quand l'essai est fini
+function appliquerOffre() {
+  const offre = offreActuelle();
+  const d = droits();
+
+  const verrouiller = (idOnglet, idNav, actif, etiquette) => {
+    [idOnglet, idNav].forEach(id => {
+      const el = document.getElementById(id);
+      if (!el) return;
+      el.classList.toggle('verrou', !actif);
+      const ancien = el.querySelector('.verrou-badge');
+      if (ancien) ancien.remove();
+      if (!actif && id === idOnglet) {
+        const b = document.createElement('span');
+        b.className = 'verrou-badge';
+        b.textContent = etiquette;
+        el.appendChild(b);
+      }
+    });
+  };
+  verrouiller('tab-sec-devis', 'nav-sec-devis', d.devis, 'Pro');
+  verrouiller('tab-sec-rapports', 'nav-sec-rapports', d.rapports, 'Pro');
+  verrouiller('tab-sec-ia', 'nav-sec-ia', d.ia, 'Premium');
+
+  // Carte « Mon abonnement » dans Paramètres
+  const nomOffre = offre === 'expire' ? 'Essai terminé' : OFFRES[offre].nom;
+  setTexte('abo-offre', nomOffre);
+  let detail = '';
+  if (offre === 'essai') detail = 'Fin de l\'essai : ' + new Date(boutiqueActuelle.essai_fin).toLocaleString('fr-FR');
+  else if (offre === 'expire') detail = 'Choisissez une offre pour reprendre l\'encaissement.';
+  else if (boutiqueActuelle.abonnement_fin) detail = 'Actif jusqu\'au ' + new Date(boutiqueActuelle.abonnement_fin).toLocaleDateString('fr-FR');
+  else detail = 'Abonnement actif.';
+  setTexte('abo-detail', detail);
+  const lien = document.getElementById('abo-lien');
+  if (lien) lien.href = lienWhatsApp(`Bonjour, je veux changer d'offre SmartCaisse. Ma boutique : ${boutiqueActuelle.nom}.`);
+
+  const ecran = document.getElementById('ecran-abonnement');
+  if (ecran) {
+    if (offre === 'expire') {
+      const conteneur = document.getElementById('ecran-abo-offres');
+      conteneur.innerHTML = ['essentiel', 'pro', 'premium'].map(cle => {
+        const o = OFFRES[cle];
+        const resume = cle === 'essentiel' ? 'Caisse, stock, 10 dettes en cours'
+          : cle === 'pro' ? 'Dettes illimitées, devis, rapports, relances WhatsApp'
+          : 'Tout Pro + assistant IA et relances groupées';
+        return `
+          <a href="${lienWhatsApp(`Bonjour, je veux m'abonner à l'offre ${o.nom} de SmartCaisse. Ma boutique : ${boutiqueActuelle.nom}.`)}" target="_blank"
+             class="block bg-card border ${cle === 'pro' ? 'border-gold' : 'border-border'} rounded-2xl p-4 hover:border-gold transition">
+            <div class="flex items-center justify-between">
+              <p class="font-bold text-white text-sm">${o.nom}</p>
+              <p class="font-mono-num text-gold font-bold text-sm">${o.prix.toLocaleString('fr-FR')} FCFA/mois</p>
+            </div>
+            <p class="text-[11px] text-slate-400 mt-1">${resume}</p>
+          </a>`;
+      }).join('');
+      ecran.classList.remove('hidden');
+    } else {
+      ecran.classList.add('hidden');
+    }
+  }
+}
+
+// Message standard quand une fonction demande une offre supérieure
+function demanderOffre(offreRequise) {
+  notifier(`Cette fonction est incluse à partir de l'offre ${offreRequise}. Allez dans Paramètres > Mon abonnement.`, 'erreur');
 }
 
 async function obtenirOuCreerBoutique(nomBoutique, telephone, pays) {
@@ -57,19 +184,24 @@ async function obtenirOuCreerBoutique(nomBoutique, telephone, pays) {
 
   if (existante) return existante;
 
+  // Inscription confirmée par e-mail : on reprend les infos saisies au départ
+  const meta = user.user_metadata || {};
+  nomBoutique = nomBoutique || meta.nom_boutique;
+  telephone = telephone || meta.telephone;
+
   const { data: nouvelle, error } = await supabaseClient
     .from('boutiques')
     .insert({
       user_id: user.id,
       nom: nomBoutique || 'Ma Boutique',
       telephone: telephone || null,
-      pays: pays || 'CG',
+      pays: 'CG',
     })
     .select()
     .single();
 
   if (error) {
-    alert("Erreur lors de la création de la boutique : " + error.message);
+    notifier("Erreur lors de la création de la boutique : " + error.message);
     return null;
   }
   return nouvelle;
@@ -93,15 +225,23 @@ async function gererAuthentification(e) {
 
   try {
     if (modeAuthActuel === 'signup') {
-      const { data, error } = await supabaseClient.auth.signUp({ email, password });
+      const telNormalise = normaliserTelephoneCG(telephone);
+      if (!nomBoutique) throw new Error("Indiquez le nom de votre boutique.");
+      if (!telNormalise) throw new Error("Numéro invalide. Entrez un numéro congolais, par exemple 06 123 45 67.");
+
+      const { data, error } = await supabaseClient.auth.signUp({
+        email,
+        password,
+        options: { data: { nom_boutique: nomBoutique, telephone: telNormalise } },
+      });
       if (error) throw error;
 
       if (!data.session) {
-        alert("Compte créé ! Si Supabase demande une confirmation par email, vérifiez votre boîte mail avant de vous connecter.");
+        notifier("Compte créé ! Vérifiez votre boîte mail (et les spams) pour confirmer votre adresse, puis connectez-vous.");
         fermerAuthModal();
         return;
       }
-      await obtenirOuCreerBoutique(nomBoutique, telephone, pays);
+      await obtenirOuCreerBoutique(nomBoutique, telNormalise, 'CG');
     } else {
       const { error } = await supabaseClient.auth.signInWithPassword({ email, password });
       if (error) throw error;
@@ -110,7 +250,7 @@ async function gererAuthentification(e) {
     fermerAuthModal();
     await demarrerSession();
   } catch (err) {
-    alert("Erreur : " + traduireErreurSupabase(err.message));
+    notifier(traduireErreurSupabase(err.message), 'erreur');
   } finally {
     btn.disabled = false;
     btn.innerText = texteOriginal;
@@ -122,6 +262,9 @@ function traduireErreurSupabase(message) {
   if (message.includes('Invalid login credentials')) return "Email ou mot de passe incorrect.";
   if (message.includes('User already registered')) return "Un compte existe déjà avec cet email.";
   if (message.includes('Password should be at least')) return "Le mot de passe doit contenir au moins 6 caractères.";
+  if (message.includes('boutiques_telephone_norm_uniq')) return "Ce numéro a déjà utilisé l'essai gratuit. Connectez-vous ou choisissez une offre.";
+  if (message.includes('boutiques_email_norm_uniq')) return "Cette adresse e-mail a déjà utilisé l'essai gratuit.";
+  if (message.includes('duplicate key')) return "Ce compte ou ce numéro existe déjà.";
   return message;
 }
 
@@ -154,6 +297,7 @@ function mettreAJourCompteEssai() {
     el.innerText = boutiqueActuelle.plan === 'actif' ? 'Actif' : boutiqueActuelle.plan;
     return;
   }
+  if (offreActuelle() === 'expire') appliquerOffre();
 
   const fin = new Date(boutiqueActuelle.essai_fin).getTime();
   const maintenant = Date.now();
@@ -216,7 +360,7 @@ async function enregistrerProduit() {
   const stock = parseInt(document.getElementById('p-qty').value, 10);
 
   if (!nom || isNaN(prix) || isNaN(stock) || prix < 0 || stock < 0) {
-    alert("Veuillez remplir correctement le nom, le prix et la quantité.");
+    notifier("Veuillez remplir correctement le nom, le prix et la quantité.");
     return;
   }
 
@@ -225,7 +369,7 @@ async function enregistrerProduit() {
     .insert({ boutique_id: boutiqueActuelle.id, nom, prix, stock });
 
   if (error) {
-    alert("Erreur lors de l'enregistrement : " + error.message);
+    notifier("Erreur lors de l'enregistrement : " + error.message);
     return;
   }
 
@@ -246,14 +390,14 @@ function ajouterAuPanier(produitId) {
   if (!produit) return;
 
   if (produit.stock <= 0) {
-    alert("Stock épuisé pour cet article.");
+    notifier("Stock épuisé pour cet article.");
     return;
   }
 
   const ligne = etatApp.panier.find(item => item.id === produitId);
   if (ligne) {
     if (ligne.quantite >= produit.stock) {
-      alert("Quantité maximale atteinte pour cet article.");
+      notifier("Quantité maximale atteinte pour cet article.");
       return;
     }
     ligne.quantite += 1;
@@ -273,10 +417,21 @@ function viderPanier() {
   rafraichirPanier();
 }
 
+function choisirModePaiement(mode) {
+  modePaiement = mode;
+  document.querySelectorAll('.mode-btn').forEach(btn => {
+    const actif = btn.dataset.mode === mode;
+    btn.className = 'mode-btn rounded-lg py-2 border ' + (actif
+      ? 'bg-gold text-inkdeep border-gold'
+      : 'bg-inkdeep text-slate-300 border-border');
+  });
+}
+
 async function validerEncaissement() {
   if (!boutiqueActuelle) return;
+  if (offreActuelle() === 'expire') { appliquerOffre(); return; }
   if (etatApp.panier.length === 0) {
-    alert("Le panier est vide !");
+    notifier("Le panier est vide !");
     return;
   }
 
@@ -285,12 +440,12 @@ async function validerEncaissement() {
 
   const { data: vente, error: erreurVente } = await supabaseClient
     .from('ventes')
-    .insert({ boutique_id: boutiqueActuelle.id, reference, total: totalVente, mode_paiement: 'Espèces' })
+    .insert({ boutique_id: boutiqueActuelle.id, reference, total: totalVente, mode_paiement: modePaiement })
     .select()
     .single();
 
   if (erreurVente) {
-    alert("Erreur lors de l'encaissement : " + erreurVente.message);
+    notifier("Erreur lors de l'encaissement : " + erreurVente.message);
     return;
   }
 
@@ -331,16 +486,31 @@ async function enregistrerDette() {
   const telephone = telEl ? telEl.value.trim() : '';
 
   if (!client || isNaN(montant) || montant <= 0) {
-    alert("Veuillez indiquer le nom du client et un montant valide.");
+    notifier("Veuillez indiquer le nom du client et un montant valide.");
     return;
+  }
+
+  const enCours = etatApp.dettes.filter(d => !d.regle).length;
+  if (enCours >= droits().dettesMax) {
+    notifier(`Limite de ${droits().dettesMax} dettes en cours atteinte. Passez à l'offre Pro pour des dettes illimitées.`, 'erreur');
+    return;
+  }
+
+  let telephoneComplet = null;
+  if (telephone) {
+    telephoneComplet = normaliserTelephoneCG(telephone);
+    if (!telephoneComplet) {
+      notifier("Numéro du client invalide. Exemple : 06 123 45 67.", 'erreur');
+      return;
+    }
   }
 
   const { error } = await supabaseClient
     .from('dettes')
-    .insert({ boutique_id: boutiqueActuelle.id, client, montant, telephone: telephone || null });
+    .insert({ boutique_id: boutiqueActuelle.id, client, montant, telephone: telephoneComplet });
 
   if (error) {
-    alert("Erreur lors de l'enregistrement : " + error.message);
+    notifier("Erreur lors de l'enregistrement : " + error.message);
     return;
   }
 
@@ -353,6 +523,28 @@ async function enregistrerDette() {
   rafraichirInterface();
 }
 
+function messageRelance(d) {
+  const nom = boutiqueActuelle?.nom || 'notre boutique';
+  return `Bonjour ${d.client}, petit rappel de ${nom} : il reste ${Number(d.montant).toLocaleString('fr-FR')} FCFA à régler. Merci beaucoup !`;
+}
+
+function relancerDette(detteId) {
+  if (!droits().relances) { demanderOffre('Pro'); return; }
+  const d = etatApp.dettes.find(x => x.id === detteId);
+  if (!d || !d.telephone) return;
+  window.open(`https://wa.me/${d.telephone.replace('+', '')}?text=${encodeURIComponent(messageRelance(d))}`, '_blank');
+}
+
+// Premium : liste des dettes de plus de 7 jours, à relancer une par une
+function relancerDettesEnRetard() {
+  if (!droits().ia) { demanderOffre('Premium'); return; }
+  const septJours = 7 * 24 * 60 * 60 * 1000;
+  const enRetard = etatApp.dettes.filter(d => !d.regle && d.telephone && (Date.now() - new Date(d.created_at).getTime()) > septJours);
+  if (enRetard.length === 0) { notifier("Aucune dette en retard avec un numéro de téléphone."); return; }
+  enRetard.forEach((d, i) => setTimeout(() => window.open(`https://wa.me/${d.telephone.replace('+', '')}?text=${encodeURIComponent(messageRelance(d))}`, '_blank'), i * 600));
+  notifier(`${enRetard.length} relance(s) ouverte(s). Autorisez les fenêtres si votre navigateur les bloque.`);
+}
+
 async function reglerDette(detteId) {
   if (!confirm('Confirmer le règlement de cette dette ?')) return;
 
@@ -362,7 +554,7 @@ async function reglerDette(detteId) {
     .eq('id', detteId);
 
   if (error) {
-    alert("Erreur : " + error.message);
+    notifier("Erreur : " + error.message);
     return;
   }
 
@@ -393,7 +585,14 @@ function rendreListeProduitsCaisse() {
     return;
   }
 
-  conteneur.innerHTML = etatApp.produits.map(p => `
+  const terme = (document.getElementById('recherche-caisse')?.value || '').trim().toLowerCase();
+  const liste = terme ? etatApp.produits.filter(p => (p.nom || '').toLowerCase().includes(terme)) : etatApp.produits;
+  if (liste.length === 0) {
+    conteneur.innerHTML = `<p class="col-span-full text-center py-10 text-slate-500 text-xs">Aucun article ne correspond à « ${escaperHtml(terme)} ».</p>`;
+    return;
+  }
+
+  conteneur.innerHTML = liste.map(p => `
     <button onclick="ajouterAuPanier('${p.id}')" class="bg-card hover:bg-cardhi border border-border rounded-xl p-3 text-left transition active:scale-95 ${p.stock <= 0 ? 'opacity-40 pointer-events-none' : ''}">
       <p class="text-xs font-bold text-white truncate">${escaperHtml(p.nom)}</p>
       <p class="font-mono-num text-sm text-gold font-bold mt-1">${Number(p.prix).toLocaleString('fr-FR')} FCFA</p>
@@ -411,7 +610,14 @@ function rendreListeStock() {
     return;
   }
 
-  conteneur.innerHTML = etatApp.produits.map(p => `
+  const termeStock = (document.getElementById('recherche-stock')?.value || '').trim().toLowerCase();
+  const listeStock = termeStock ? etatApp.produits.filter(p => (p.nom || '').toLowerCase().includes(termeStock)) : etatApp.produits;
+  if (listeStock.length === 0) {
+    conteneur.innerHTML = `<p class="text-center py-10 text-slate-500 text-xs">Aucun produit ne correspond.</p>`;
+    return;
+  }
+
+  conteneur.innerHTML = listeStock.map(p => `
     <div class="flex items-center justify-between p-4">
       <div>
         <p class="text-sm font-bold text-white">${escaperHtml(p.nom)}</p>
@@ -441,7 +647,10 @@ function rendreListeDettes() {
       </div>
       ${d.regle
         ? `<span class="text-[10px] font-bold text-emerald bg-emerald/10 px-3 py-1.5 rounded-full border border-emerald/20">Réglée</span>`
-        : `<button onclick="reglerDette('${d.id}')" class="text-[10px] font-bold text-inkdeep bg-gold hover:bg-gold-light px-3 py-1.5 rounded-full transition">Marquer réglée</button>`
+        : `<div class="flex items-center gap-1.5">
+             ${d.telephone ? `<button onclick="relancerDette('${d.id}')" title="Relancer sur WhatsApp" class="text-[10px] font-bold text-emerald bg-emerald/10 border border-emerald/20 px-2.5 py-1.5 rounded-full"><i class="fa-brands fa-whatsapp"></i> Relancer</button>` : ''}
+             <button onclick="reglerDette('${d.id}')" class="text-[10px] font-bold text-inkdeep bg-gold hover:bg-gold-light px-3 py-1.5 rounded-full transition">Réglée</button>
+           </div>`
       }
     </div>
   `).join('');
@@ -505,6 +714,21 @@ function rendreKPIs() {
   const dettesNonReglees = etatApp.dettes.filter(d => !d.regle);
   const totalDettes = dettesNonReglees.reduce((s, d) => s + Number(d.montant), 0);
   const beneficeEstime = Math.round(ventesDuJour * 0.25);
+
+  const hier = new Date(Date.now() - 24 * 60 * 60 * 1000).toDateString();
+  const ventesHier = etatApp.historique
+    .filter(v => new Date(v.created_at).toDateString() === hier)
+    .reduce((s, v) => s + Number(v.total), 0);
+  let texteHier = 'Aucune vente hier';
+  if (ventesHier > 0) {
+    const diff = Math.round(((ventesDuJour - ventesHier) / ventesHier) * 100);
+    texteHier = (diff >= 0 ? '+' : '') + diff + '% vs hier';
+  } else if (ventesDuJour > 0) {
+    texteHier = 'Première vente enregistrée';
+  }
+  setTexte('kpi-vs-hier', texteHier);
+  const faibles = etatApp.produits.filter(p => p.stock <= 3).length;
+  setTexte('kpi-stock-etat', etatApp.produits.length === 0 ? 'Aucun article' : (faibles > 0 ? faibles + ' à réapprovisionner' : 'Stock sain'));
 
   setTexte('kpi-ventes-jour', ventesDuJour.toLocaleString('fr-FR'));
   setTexte('kpi-dettes', totalDettes.toLocaleString('fr-FR'));
@@ -590,26 +814,26 @@ function appliquerNomIA() {
 
 async function enregistrerNomIA() {
   const nouveauNom = document.getElementById('param-nom-ia').value.trim();
-  if (!nouveauNom) { alert("Donnez un nom à votre assistant."); return; }
+  if (!nouveauNom) { notifier("Donnez un nom à votre assistant."); return; }
 
   const { error } = await supabaseClient.from('boutiques').update({ nom_ia: nouveauNom }).eq('id', boutiqueActuelle.id);
-  if (error) { alert("Erreur : " + error.message); return; }
+  if (error) { notifier("Erreur : " + error.message); return; }
 
   boutiqueActuelle.nom_ia = nouveauNom;
   appliquerNomIA();
-  alert(`Votre assistant s'appelle maintenant "${nouveauNom}" !`);
+  notifier(`Votre assistant s'appelle maintenant "${nouveauNom}" !`);
 }
 
 async function enregistrerParametresBoutique() {
   const nouveauNom = document.getElementById('param-nom-boutique').value.trim();
-  if (!nouveauNom) { alert("Le nom de la boutique ne peut pas être vide."); return; }
+  if (!nouveauNom) { notifier("Le nom de la boutique ne peut pas être vide."); return; }
 
   const { error } = await supabaseClient.from('boutiques').update({ nom: nouveauNom }).eq('id', boutiqueActuelle.id);
-  if (error) { alert("Erreur : " + error.message); return; }
+  if (error) { notifier("Erreur : " + error.message); return; }
 
   boutiqueActuelle.nom = nouveauNom;
   setTexte('affichage-boutique', nouveauNom);
-  alert("Informations de la boutique mises à jour !");
+  notifier("Informations de la boutique mises à jour !");
 }
 
 // ---------------------------------------------------------
@@ -619,6 +843,7 @@ async function enregistrerParametresBoutique() {
 let chatIADemarre = false;
 
 function ouvrirChatIA() {
+  if (!droits().ia) { demanderOffre('Premium'); return; }
   document.getElementById('chat-ia-panel').classList.remove('hidden');
   if (!chatIADemarre) {
     const nom = boutiqueActuelle?.nom_ia || 'SmartConseil';
@@ -778,6 +1003,7 @@ function imprimerRecu(vente, lignes) {
 let lignesDevisTemp = [];
 
 function toggleFormDevis() {
+  if (!droits().devis) { demanderOffre('Pro'); return; }
   document.getElementById('form-devis').classList.toggle('hidden');
 }
 
@@ -819,16 +1045,17 @@ function calculerTotalDevis() {
 
 async function enregistrerDevis() {
   const client = document.getElementById('dv-client').value.trim();
-  const indicatif = document.getElementById('dv-indicatif').value;
   const telephoneSaisi = document.getElementById('dv-telephone').value.trim();
 
+  if (!droits().devis) { demanderOffre('Pro'); return; }
   if (!client || lignesDevisTemp.length === 0) {
-    alert("Ajoutez le nom du client et au moins un article.");
+    notifier("Ajoutez le nom du client et au moins un article.");
     return;
   }
 
   const total = lignesDevisTemp.reduce((s, l) => s + (l.prix * l.quantite), 0);
-  const telephoneComplet = telephoneSaisi ? `${indicatif}${telephoneSaisi}` : null;
+  const telephoneComplet = telephoneSaisi ? normaliserTelephoneCG(telephoneSaisi) : null;
+  if (telephoneSaisi && !telephoneComplet) { notifier('Numéro du client invalide. Exemple : 06 123 45 67.', 'erreur'); return; }
 
   const { error } = await supabaseClient.from('devis').insert({
     boutique_id: boutiqueActuelle.id,
@@ -838,7 +1065,7 @@ async function enregistrerDevis() {
     total,
   });
 
-  if (error) { alert("Erreur : " + error.message); return; }
+  if (error) { notifier("Erreur : " + error.message); return; }
 
   document.getElementById('dv-client').value = '';
   document.getElementById('dv-telephone').value = '';
@@ -898,6 +1125,50 @@ function imprimerDevis(id) {
     { reference: 'DEVIS', total: d.total, mode_paiement: 'Devis (non payé)', created_at: d.created_at },
     d.lignes
   );
+}
+
+// ---------------------------------------------------------
+// RAPPORTS (offre Pro)
+// ---------------------------------------------------------
+function exporterCSV() {
+  if (!droits().rapports) { demanderOffre('Pro'); return; }
+  if (etatApp.historique.length === 0) { notifier("Aucune vente à exporter pour le moment."); return; }
+  const echapper = (v) => '"' + String(v ?? '').replace(/"/g, '""') + '"';
+  const lignes = [['Référence', 'Date', 'Mode de paiement', 'Total (FCFA)']];
+  etatApp.historique.forEach(v => lignes.push([v.reference, new Date(v.created_at).toLocaleString('fr-FR'), v.mode_paiement, v.total]));
+  const csv = '\uFEFF' + lignes.map(l => l.map(echapper).join(';')).join('\n');
+  const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+  const lien = document.createElement('a');
+  lien.href = URL.createObjectURL(blob);
+  lien.download = 'ventes-smartcaisse.csv';
+  document.body.appendChild(lien);
+  lien.click();
+  lien.remove();
+}
+
+function genererRapportPDF() {
+  if (!droits().rapports) { demanderOffre('Pro'); return; }
+  const uneSemaine = Date.now() - 7 * 24 * 60 * 60 * 1000;
+  const ventes = etatApp.historique.filter(v => new Date(v.created_at).getTime() >= uneSemaine);
+  const total = ventes.reduce((s, v) => s + Number(v.total), 0);
+  const parMode = {};
+  ventes.forEach(v => { parMode[v.mode_paiement] = (parMode[v.mode_paiement] || 0) + Number(v.total); });
+  const dettes = etatApp.dettes.filter(d => !d.regle);
+  const totalDettes = dettes.reduce((s, d) => s + Number(d.montant), 0);
+
+  const zone = document.getElementById('zone-impression');
+  if (!zone) return;
+  zone.innerHTML = `
+    <div style="font-size:13px;width:520px;">
+      <h2 style="margin:0 0 4px;">${escaperHtml(boutiqueActuelle?.nom || 'SmartCaisse')}</h2>
+      <p style="margin:0 0 12px;font-size:11px;">Rapport des 7 derniers jours — ${new Date().toLocaleDateString('fr-FR')}</p>
+      <hr>
+      <p><strong>Ventes :</strong> ${ventes.length} pour ${total.toLocaleString('fr-FR')} FCFA</p>
+      ${Object.keys(parMode).map(m => `<p style="margin:0 0 2px;">• ${escaperHtml(m)} : ${parMode[m].toLocaleString('fr-FR')} FCFA</p>`).join('')}
+      <p style="margin-top:10px;"><strong>Dettes à recouvrer :</strong> ${dettes.length} client(s), ${totalDettes.toLocaleString('fr-FR')} FCFA</p>
+      <p><strong>Articles en stock :</strong> ${etatApp.produits.length} références</p>
+    </div>`;
+  window.print();
 }
 
 // ---------------------------------------------------------
@@ -965,6 +1236,10 @@ async function chargerDonneesAdmin() {
   setTexte('admin-total-boutiques', boutiques.length);
   setTexte('admin-total-essai', enEssai);
   setTexte('admin-total-actifs', actifs);
+  const revenu = boutiques
+    .filter(b => b.plan === 'actif')
+    .reduce((somme, b) => somme + (OFFRES[b.offre]?.prix || OFFRES.essentiel.prix), 0);
+  setTexte('admin-revenu', revenu.toLocaleString('fr-FR'));
 
   const conteneur = document.getElementById('admin-liste-boutiques');
   if (!conteneur) return;
@@ -978,13 +1253,29 @@ async function chargerDonneesAdmin() {
     <div class="flex items-center justify-between p-4">
       <div>
         <p class="text-sm font-bold text-white">${escaperHtml(b.nom)}</p>
-        <p class="text-[11px] text-slate-500">${b.pays || '—'} · ${b.telephone || 'Tél. non renseigné'}</p>
+        <p class="text-[11px] text-slate-500">${b.telephone || 'Tél. non renseigné'}</p>
       </div>
-      <span class="text-[10px] font-bold px-3 py-1.5 rounded-full ${b.plan === 'actif' ? 'bg-emerald/10 text-emerald border border-emerald/20' : 'bg-gold/10 text-gold border border-gold/20'}">
-        ${b.plan === 'essai' ? 'Essai' : b.plan === 'actif' ? 'Actif' : b.plan}
-      </span>
+      <div class="flex items-center gap-2">
+        <span class="text-[10px] font-bold px-3 py-1.5 rounded-full ${b.plan === 'actif' ? 'bg-emerald/10 text-emerald border border-emerald/20' : 'bg-gold/10 text-gold border border-gold/20'}">
+          ${b.plan === 'essai' ? 'Essai' : b.plan === 'actif' ? 'Actif · ' + escaperHtml(b.offre || 'essentiel') : escaperHtml(b.plan)}
+        </span>
+        <button onclick="activerAbonnementAdmin('${b.id}')" class="text-[10px] font-bold text-inkdeep bg-gold hover:bg-gold-light px-2.5 py-1.5 rounded-full">Activer</button>
+      </div>
     </div>
   `).join('');
+}
+
+// Activation manuelle après un paiement Mobile Money (avant l'arrivée de GeniusPay)
+async function activerAbonnementAdmin(boutiqueId) {
+  const offre = (prompt("Offre à activer : essentiel, pro ou premium ?") || '').trim().toLowerCase();
+  if (!OFFRES[offre] || offre === 'essai') { notifier("Offre non reconnue.", 'erreur'); return; }
+  const mois = parseInt(prompt("Nombre de mois : 1, 3, 6 ou 12 ?"), 10);
+  if (![1, 3, 6, 12].includes(mois)) { notifier("Durée non reconnue.", 'erreur'); return; }
+
+  const { error } = await supabaseClient.rpc('activer_abonnement', { p_boutique: boutiqueId, p_offre: offre, p_mois: mois });
+  if (error) { notifier(error.message, 'erreur'); return; }
+  notifier("Abonnement activé.");
+  await chargerDonneesAdmin();
 }
 
 // ---------------------------------------------------------
