@@ -202,7 +202,33 @@ end $$;
 revoke all on function public.activer_abonnement(uuid, text, int) from public, anon;
 grant execute on function public.activer_abonnement(uuid, text, int) to authenticated;
 
--- 11) Contrôles à faire après application ------------------------------------
+-- 11) Ajustements constatés sur la base réelle -------------------------------
+-- a) colonne utilisée par l'app pour le nom de l'assistant IA
+alter table public.boutiques add column if not exists nom_ia text;
+
+-- b) is_admin() : chemin de recherche figé (alerte de sécurité Supabase)
+alter function public.is_admin() set search_path = public;
+
+-- c) la table abonnements n'est pas utilisée par l'app : on retire la possibilité
+--    pour un utilisateur de s'y créer ou modifier un abonnement lui-même
+drop policy if exists abonnements_insert_own on public.abonnements;
+drop policy if exists abonnements_update_own on public.abonnements;
+
+-- d) prix et remises de référence alignés sur la nouvelle grille
+update public.plans set prix_mensuel = 3500  where code = 'essentiel';
+update public.plans set prix_mensuel = 7500  where code = 'pro';
+update public.plans set prix_mensuel = 12500 where code = 'premium';
+update public.reductions_duree set reduction_pourcent = 0  where duree_mois = 1;
+update public.reductions_duree set reduction_pourcent = 5  where duree_mois = 3;
+update public.reductions_duree set reduction_pourcent = 10 where duree_mois = 6;
+update public.reductions_duree set reduction_pourcent = 15 where duree_mois = 12;
+
+-- e) compte administrateur existant : Premium 12 mois pour pouvoir tout tester
+update public.boutiques b
+   set plan = 'actif', offre = 'premium', abonnement_fin = now() + interval '12 months'
+ where exists (select 1 from public.administrateurs a where a.user_id = b.user_id);
+
+-- 12) Contrôles à faire après application ------------------------------------
 -- a) Les politiques RLS de boutiques/produits/ventes/dettes/devis doivent
 --    toutes filtrer sur boutiques.user_id = auth.uid().
 -- b) La table administrateurs ne doit être lisible que par son propre
