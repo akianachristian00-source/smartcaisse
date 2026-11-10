@@ -1,0 +1,6 @@
+# Secrets : ne JAMAIS les mettre dans le depot (le depot est public)
+.env
+.env.*
+!.env.example
+.vercel
+node_modules

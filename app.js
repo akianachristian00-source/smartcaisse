@@ -19,6 +19,16 @@ const OFFRES = {
   premium:   { nom: 'Premium',       prix: 12500, dettesMax: Infinity, devis: true,  rapports: true,  ia: true,  relances: true  },
 };
 
+// Remises selon la durée d'abonnement (en %). Le serveur recalcule toujours le montant
+// (api/_saspay.js) : ce tableau ne sert qu'à l'AFFICHAGE du total avant le paiement.
+const REMISES_DUREE = { 1: 0, 3: 5, 6: 10, 12: 15 };
+
+function prixTotal(offre, mois) {
+  const o = OFFRES[offre];
+  if (!o || !(mois in REMISES_DUREE)) return 0;
+  return Math.round((o.prix * mois * (100 - REMISES_DUREE[mois])) / 100);
+}
+
 let boutiqueActuelle = null;
 let modePaiement = 'Espèces';
 
@@ -103,6 +113,7 @@ async function demarrerSession() {
   if (typeof afficherAppDirect === 'function') afficherAppDirect();
   demarrerCompteEssai();
   appliquerOffre();
+  verifierPaiementAuRetour();
 }
 
 // Verrous visuels selon l'offre + écran d'abonnement quand l'essai est fini
@@ -139,7 +150,12 @@ function appliquerOffre() {
   else detail = 'Abonnement actif.';
   setTexte('abo-detail', detail);
   const lien = document.getElementById('abo-lien');
-  if (lien) lien.href = lienWhatsApp(`Bonjour, je veux changer d'offre SmartCaisse. Ma boutique : ${boutiqueActuelle.nom}.`);
+  if (lien) {
+    // Le bouton ouvre le paiement en ligne (SasPay) ; WhatsApp reste proposé dans la fenêtre de paiement
+    lien.href = '#';
+    lien.removeAttribute('target');
+    lien.onclick = (e) => { e.preventDefault(); ouvrirPaiement(); };
+  }
 
   const ecran = document.getElementById('ecran-abonnement');
   if (ecran) {
@@ -151,14 +167,14 @@ function appliquerOffre() {
           : cle === 'pro' ? 'Dettes illimitées, devis, rapports, relances WhatsApp'
           : 'Tout Pro + assistant IA et relances groupées';
         return `
-          <a href="${lienWhatsApp(`Bonjour, je veux m'abonner à l'offre ${o.nom} de SmartCaisse. Ma boutique : ${boutiqueActuelle.nom}.`)}" target="_blank"
-             class="block bg-card border ${cle === 'pro' ? 'border-gold' : 'border-border'} rounded-2xl p-4 hover:border-gold transition">
+          <button type="button" onclick="ouvrirPaiement('${cle}')"
+             class="block w-full text-left bg-card border ${cle === 'pro' ? 'border-gold' : 'border-border'} rounded-2xl p-4 hover:border-gold transition">
             <div class="flex items-center justify-between">
               <p class="font-bold text-white text-sm">${o.nom}</p>
               <p class="font-mono-num text-gold font-bold text-sm">${o.prix.toLocaleString('fr-FR')} FCFA/mois</p>
             </div>
             <p class="text-[11px] text-slate-400 mt-1">${resume}</p>
-          </a>`;
+          </button>`;
       }).join('');
       ecran.classList.remove('hidden');
     } else {
@@ -1241,6 +1257,14 @@ async function chargerDonneesAdmin() {
     .reduce((somme, b) => somme + (OFFRES[b.offre]?.prix || OFFRES.essentiel.prix), 0);
   setTexte('admin-revenu', revenu.toLocaleString('fr-FR'));
 
+  // Total encaissé en ligne ce mois-ci : alerte à 800 000 FCFA (plafond Particulier : 1 000 000)
+  const { data: totalSasPay } = await supabaseClient.rpc('saspay_total_mois');
+  const totalMois = Number(totalSasPay) || 0;
+  setTexte('admin-saspay-mois', totalMois.toLocaleString('fr-FR'));
+  setTexte('admin-saspay-alerte', totalMois >= 800000
+    ? 'Attention : plafond bientôt atteint. Demandez le passage en compte Business à SasPay.'
+    : 'Plafond mensuel du compte Particulier.');
+
   const conteneur = document.getElementById('admin-liste-boutiques');
   if (!conteneur) return;
 
@@ -1276,6 +1300,176 @@ async function activerAbonnementAdmin(boutiqueId) {
   if (error) { notifier(error.message, 'erreur'); return; }
   notifier("Abonnement activé.");
   await chargerDonneesAdmin();
+}
+
+// ---------------------------------------------------------
+// PAIEMENT EN LIGNE DES ABONNEMENTS (SasPay)
+// Le navigateur ne fait que demander le lien de paiement ; l'abonnement n'est
+// activé que par le serveur, après vérification du paiement chez SasPay.
+// ---------------------------------------------------------
+const choixPaiement = { offre: 'pro', mois: 1 };
+let paiementEnCours = false;
+
+async function appelerApi(chemin, options) {
+  const { data: { session } } = await supabaseClient.auth.getSession();
+  if (!session) throw new Error('Connectez-vous pour continuer.');
+  const opts = options || {};
+  const res = await fetch(chemin, {
+    method: opts.method || 'GET',
+    headers: { 'Authorization': 'Bearer ' + session.access_token, 'Content-Type': 'application/json' },
+    body: opts.body,
+  });
+  let json = {};
+  try { json = await res.json(); } catch (e) { /* réponse vide */ }
+  if (!res.ok) {
+    const err = new Error(json.erreur || 'Erreur de paiement. Réessayez.');
+    err.code = json.code;
+    throw err;
+  }
+  return json;
+}
+
+function ouvrirPaiement(offreInitiale) {
+  if (offreInitiale && OFFRES[offreInitiale] && offreInitiale !== 'essai') choixPaiement.offre = offreInitiale;
+  let modal = document.getElementById('modal-paiement');
+  if (!modal) {
+    modal = document.createElement('div');
+    modal.id = 'modal-paiement';
+    modal.className = 'fixed inset-0 z-[70] bg-inkdeep/95 backdrop-blur-md overflow-y-auto';
+    document.body.appendChild(modal);
+  }
+  modal.classList.remove('hidden');
+  dessinerPaiement();
+}
+
+function fermerPaiement() {
+  const modal = document.getElementById('modal-paiement');
+  if (modal) modal.classList.add('hidden');
+}
+
+function choisirOffrePaiement(offre) { choixPaiement.offre = offre; dessinerPaiement(); }
+function choisirDureePaiement(mois) { choixPaiement.mois = mois; dessinerPaiement(); }
+
+function dessinerPaiement() {
+  const modal = document.getElementById('modal-paiement');
+  if (!modal) return;
+  const { offre, mois } = choixPaiement;
+  const total = prixTotal(offre, mois);
+  const sansRemise = OFFRES[offre].prix * mois;
+  const remise = REMISES_DUREE[mois];
+
+  const boutonsOffres = ['essentiel', 'pro', 'premium'].map(cle => `
+    <button type="button" onclick="choisirOffrePaiement('${cle}')"
+      class="text-left bg-card border ${cle === offre ? 'border-gold' : 'border-border'} rounded-xl p-3 transition">
+      <p class="text-xs font-bold text-white">${OFFRES[cle].nom}</p>
+      <p class="font-mono-num text-gold text-[11px] font-bold">${OFFRES[cle].prix.toLocaleString('fr-FR')} FCFA/mois</p>
+    </button>`).join('');
+
+  const boutonsDurees = [1, 3, 6, 12].map(m => `
+    <button type="button" onclick="choisirDureePaiement(${m})"
+      class="bg-card border ${m === mois ? 'border-gold' : 'border-border'} rounded-xl py-2.5 text-center transition">
+      <p class="text-xs font-bold text-white">${m} mois</p>
+      <p class="text-[10px] ${REMISES_DUREE[m] ? 'text-emerald' : 'text-slate-500'}">${REMISES_DUREE[m] ? '-' + REMISES_DUREE[m] + ' %' : 'sans remise'}</p>
+    </button>`).join('');
+
+  const messageWa = `Bonjour, je veux m'abonner à l'offre ${OFFRES[offre].nom} (${mois} mois) de SmartCaisse. Ma boutique : ${boutiqueActuelle ? boutiqueActuelle.nom : ''}.`;
+
+  modal.innerHTML = `
+    <div class="max-w-lg mx-auto px-5 py-8 space-y-5">
+      <div class="flex items-center justify-between">
+        <h2 class="font-display text-xl font-bold text-white">Choisir mon abonnement</h2>
+        <button type="button" onclick="fermerPaiement()" class="text-slate-400 hover:text-white text-sm px-2 py-1">Fermer</button>
+      </div>
+      <div class="space-y-2">
+        <p class="text-[11px] font-bold text-slate-400 uppercase">Offre</p>
+        <div class="grid grid-cols-3 gap-2">${boutonsOffres}</div>
+      </div>
+      <div class="space-y-2">
+        <p class="text-[11px] font-bold text-slate-400 uppercase">Durée</p>
+        <div class="grid grid-cols-4 gap-2">${boutonsDurees}</div>
+      </div>
+      <div class="bg-card border border-border rounded-2xl p-4 space-y-1">
+        <div class="flex items-center justify-between">
+          <p class="text-sm text-slate-300">Total ${OFFRES[offre].nom} · ${mois} mois</p>
+          <p class="font-mono-num text-gold font-extrabold text-lg">${total.toLocaleString('fr-FR')} FCFA</p>
+        </div>
+        ${remise ? `<p class="text-[11px] text-emerald">Remise de ${remise} % (au lieu de ${sansRemise.toLocaleString('fr-FR')} FCFA)</p>` : ''}
+        <p class="text-[11px] text-slate-500">Paiement Mobile Money (MTN ou Airtel) sur la page sécurisée SasPay. Le montant exact, frais de paiement compris, s'affiche avant de valider.</p>
+      </div>
+      <button type="button" id="btn-payer-en-ligne" onclick="payerEnLigne()"
+        class="w-full bg-gold hover:bg-gold-light text-inkdeep font-bold text-sm py-3.5 rounded-xl">
+        Payer ${total.toLocaleString('fr-FR')} FCFA
+      </button>
+      <a href="${lienWhatsApp(messageWa)}" target="_blank"
+        class="block text-center text-xs text-slate-400 hover:text-white py-2">Je préfère payer via WhatsApp</a>
+    </div>`;
+}
+
+async function payerEnLigne() {
+  if (paiementEnCours) return;
+  paiementEnCours = true;
+  const btn = document.getElementById('btn-payer-en-ligne');
+  if (btn) { btn.disabled = true; btn.textContent = 'Redirection vers le paiement…'; }
+  try {
+    const r = await appelerApi('/api/saspay-creer', {
+      method: 'POST',
+      body: JSON.stringify({ offre: choixPaiement.offre, mois: choixPaiement.mois }),
+    });
+    window.location.href = r.checkout_url;
+  } catch (e) {
+    notifier(e.message || 'Paiement impossible pour le moment.', 'erreur');
+    paiementEnCours = false;
+    dessinerPaiement();
+  }
+}
+
+// Après le retour de la page SasPay (?paiement=<id>) ou à l'ouverture de l'app s'il reste
+// un paiement en attente : on demande au serveur de vérifier chez SasPay.
+async function verifierPaiementAuRetour() {
+  try {
+    const params = new URLSearchParams(window.location.search);
+    const idRetour = params.get('paiement');
+    if (idRetour) {
+      history.replaceState(null, '', window.location.pathname);
+      notifier('Vérification de votre paiement…');
+      await suivrePaiement(idRetour);
+      return;
+    }
+    // Rattrapage silencieux : un paiement est-il resté en attente (onglet fermé trop tôt) ?
+    const { data } = await supabaseClient.from('paiements_saspay')
+      .select('id').eq('statut', 'PENDING').limit(1);
+    if (data && data.length) await suivrePaiement('en-attente', 1);
+  } catch (e) {
+    console.warn('Vérification du paiement :', e.message);
+  }
+}
+
+async function suivrePaiement(id, essaisMax) {
+  const max = essaisMax || 30; // environ 2 minutes (toutes les 4 secondes)
+  for (let i = 0; i < max; i++) {
+    const r = await appelerApi('/api/saspay-statut?id=' + encodeURIComponent(id));
+    if (r.statut === 'SUCCESS') {
+      boutiqueActuelle = await obtenirOuCreerBoutique();
+      appliquerOffre();
+      mettreAJourCompteEssai();
+      fermerPaiement();
+      notifier('Paiement reçu. Votre abonnement est activé, merci !');
+      return;
+    }
+    if (['FAILED', 'EXPIRED', 'CANCELLED'].includes(r.statut)) {
+      notifier("Le paiement n'a pas abouti. Vous pouvez réessayer.", 'erreur');
+      return;
+    }
+    if (r.statut === 'ANOMALIE') {
+      notifier('Paiement reçu mais à vérifier : contactez-nous sur WhatsApp, nous activons votre offre.', 'erreur');
+      return;
+    }
+    if (r.statut === 'AUCUN') return;
+    if (i < max - 1) await new Promise(ok => setTimeout(ok, 4000));
+  }
+  if (essaisMax !== 1) {
+    notifier("Paiement en cours de confirmation. Votre abonnement s'activera automatiquement.");
+  }
 }
 
 // ---------------------------------------------------------

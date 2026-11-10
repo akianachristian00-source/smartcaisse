@@ -22,6 +22,8 @@ self.addEventListener('activate', (event) => {
 });
 
 self.addEventListener('fetch', (event) => {
+  // Les appels /api (paiement) ne passent jamais par le cache : réponse toujours fraîche
+  if (new URL(event.request.url).pathname.startsWith('/api/')) return;
   // Réseau en priorité (données toujours à jour), cache en secours si hors-ligne
   event.respondWith(
     fetch(event.request).catch(() => caches.match(event.request))
