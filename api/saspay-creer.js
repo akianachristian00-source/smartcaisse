@@ -82,7 +82,7 @@ module.exports = async (req, res) => {
         customer_name: String(boutique.nom || 'Client SmartCaisse').slice(0, 100),
         return_url: cfg.appUrl + '/?paiement=' + paiement.id,
         metadata: { paiement_id: paiement.id, boutique_id: boutique.id, offre, mois },
-        fee_charge_mode: 'ADD_ON',                  // le client paie les frais en plus (si autorisé sur le compte)
+        fee_charge_mode: cfg.modeFrais,             // DEDUCTED par défaut : le client paie le prix exact (si autorisé sur le compte)
       });
     } catch (e) {
       await majPaiement(paiement.id, { statut: 'FAILED' });

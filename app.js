@@ -1394,7 +1394,7 @@ function dessinerPaiement() {
           <p class="font-mono-num text-gold font-extrabold text-lg">${total.toLocaleString('fr-FR')} FCFA</p>
         </div>
         ${remise ? `<p class="text-[11px] text-emerald">Remise de ${remise} % (au lieu de ${sansRemise.toLocaleString('fr-FR')} FCFA)</p>` : ''}
-        <p class="text-[11px] text-slate-500">Paiement Mobile Money (MTN ou Airtel) sur la page sécurisée SasPay. Le montant exact, frais de paiement compris, s'affiche avant de valider.</p>
+        <p class="text-[11px] text-slate-500">Paiement Mobile Money (MTN ou Airtel) sur la page sécurisée SasPay. Vous payez exactement ce montant, sans frais supplémentaires.</p>
       </div>
       <button type="button" id="btn-payer-en-ligne" onclick="payerEnLigne()"
         class="w-full bg-gold hover:bg-gold-light text-inkdeep font-bold text-sm py-3.5 rounded-xl">

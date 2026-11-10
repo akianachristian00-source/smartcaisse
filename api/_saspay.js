@@ -31,6 +31,9 @@ function config() {
     // Plafond du compte SasPay "Particulier" : 1 000 000 FCFA/mois. On s'arrête un peu avant,
     // car on ne sait pas si SasPay compte le montant avec ou sans frais (~5,7 %).
     plafondMensuel: Number(env('SASPAY_PLAFOND_MENSUEL', '940000')),
+    // DEDUCTED : le client paie exactement le prix affiché, les frais SasPay sont prélevés sur ce que tu reçois.
+    // ADD_ON   : le client paie les frais EN PLUS du prix.
+    modeFrais: ['ADD_ON', 'DEDUCTED'].includes(env('SASPAY_FEE_MODE', 'DEDUCTED')) ? env('SASPAY_FEE_MODE', 'DEDUCTED') : 'DEDUCTED',
   };
 }
 
