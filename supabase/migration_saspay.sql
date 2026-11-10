@@ -45,7 +45,10 @@ create policy paiements_saspay_select_own on public.paiements_saspay
 
 -- Aucune politique insert/update/delete : seul le service_role (qui ignore la
 -- RLS) peut écrire. Un utilisateur ne peut donc jamais se "payer" lui-même.
-revoke insert, update, delete on public.paiements_saspay from anon, authenticated;
+-- Supabase donne par défaut tous les droits à anon/authenticated : on retire TOUT,
+-- puis on rend seulement la lecture (filtrée par la politique ci-dessus) aux connectés.
+revoke all on public.paiements_saspay from anon, authenticated;
+grant select on public.paiements_saspay to authenticated;
 
 -- 3) Activation de l'abonnement, une seule fois ---------------------------------
 -- Appelée uniquement par le serveur APRES vérification du paiement chez SasPay.
